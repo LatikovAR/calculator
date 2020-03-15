@@ -1,195 +1,194 @@
 #include "syntax_tree.h"
+#include <stdlib.h>
 
-void make_tree_vert_left(struct syn_tree* top);
-void make_tree_vert_right(struct syn_tree* top);
-int build_v(struct lex_array_t* lex_arr, int lex_arr_pos, struct syn_tree* top);
-int isbrace_order(struct lex_array_t* lex_arr);
-int calculate_tree(struct syn_tree* top);
+void make_tree_vert(struct syn_tree* top);
+int build_expr(struct syn_tree* top, int l_border, int r_border, struct lex_array_t* lex_arr);
+int build_mult(struct syn_tree* top, int l_border, int r_border, struct lex_array_t* lex_arr);
+int build_term(struct syn_tree* top, int l_border, int r_border, struct lex_array_t* lex_arr);
 
 struct syn_tree* make_syn_tree(struct lex_array_t* lex_arr) {
     struct syn_tree* s_tree;
     int a;
     assert(lex_arr != nullptr);
 
-    if(isbrace_order(lex_arr) == 0) {
-        return nullptr;
-    }
-    //Проверка правильности расстановки скобок
-    //Сделать ее отдельно - самый простой вариант для моей реализации
-
-    s_tree = (struct syn_tree*) calloc(1, sizeof (struct syn_tree));
+    s_tree = (struct syn_tree*) malloc(sizeof (struct syn_tree));
     s_tree->left = nullptr;
     s_tree->right = nullptr;
-    a = build_v(lex_arr, lex_arr->size - 1, s_tree);
-    //При корректной работе а = -1, иначе -2
+    a = build_expr(s_tree, 0, lex_arr->size, lex_arr);
+    //При корректной работе а = 1, иначе 0
 
-    if(a == -2) {
+    if(a == 0) {
         destroy_tree(s_tree);
         return nullptr;
     }
     return s_tree;
 }
 
-int isbrace_order(struct lex_array_t* lex_arr) {
-    int i, cur_br_num;
-    assert(lex_arr != nullptr);
+//Во всех функциях построения синтаксического дерева:
+//return 0 - ошибка, return 1 - правильное выполнение.
+//проход по лексемам идет с конца массива
+int build_expr(struct syn_tree* top, int l_border, int r_border, struct lex_array_t* lex_arr) {
+    int i, brace_num, sep_pos;
+    assert(top != nullptr);
 
-    cur_br_num = 0;
-    //Число встретившихся "(" - ")", должно быть не меньше 0 всегда.
-    //В конце должно быть 0.
-    for(i = 0; i < lex_arr->size; i++) {
+    //поиск нужной лексемы
+    sep_pos = -1; //номер нужной лексемы будет здесь
+    brace_num = 0;
+    //приоритет лексемы не должен повышаться скобками
+    for(i = r_border - 1; i >= l_border; i--) {
         if(lex_arr->lexems[i].kind == BRACE) {
-            if(lex_arr->lexems[i].lex.b == LBRAC) {
-                cur_br_num++;
-            }
-            else if(lex_arr->lexems[i].lex.b == RBRAC) {
-                cur_br_num--;
+            if(lex_arr->lexems[i].lex.b == RBRAC) {
+                brace_num++;
             }
             else {
-                return 0;
+                brace_num--;
             }
-            if(cur_br_num < 0) {
-                return 0;
+        }
+
+        if(brace_num < 0) { //лишняя проверка на правильность скобочной последовательности
+            return 0;
+        }
+        if(brace_num == 0) {
+            if((lex_arr->lexems[i].kind == OP) && ((lex_arr->lexems[i].lex.op == ADD) || (lex_arr->lexems[i].lex.op == SUB))) {
+                sep_pos = i;
+                break;
             }
         }
     }
-    if(cur_br_num > 0) {
+    if(sep_pos == -1) { //случай отсутствия искомой лексемы
+        return build_mult(top, l_border, r_border, lex_arr);
+    }
+
+    //построение вершины дерева для лексемы и разделение задачи на части
+    if(sep_pos == r_border - 1) {
         return 0;
+    }
+    else if(sep_pos == l_border) {
+        if(lex_arr->lexems[sep_pos].lex.op == SUB) { //учет ситуаций наподобие (-1)
+            make_tree_vert(top);
+            top->left->data.kind = NUM;
+            top->left->data.lex.num = 0;
+            top->data.kind = OP;
+            top->data.lex.op = SUB;
+            if(build_expr(top->right, sep_pos + 1, r_border, lex_arr) == 0) {
+                return 0;
+            }
+        }
+        else {
+            return 0;
+        }
+    }
+    else {
+        top->data = lex_arr->lexems[sep_pos];
+        make_tree_vert(top);
+        if(build_expr(top->left, l_border, sep_pos, lex_arr) == 0) {
+            return 0;
+        }
+        if(build_mult(top->right, sep_pos + 1, r_border, lex_arr) == 0) {
+            return 0;
+        }
     }
     return 1;
 }
 
-void make_tree_vert_right(struct syn_tree* top) {
+//эта функция аналогична предыдущей
+int build_mult(struct syn_tree* top, int l_border, int r_border, struct lex_array_t* lex_arr) {
+    int i, brace_num, sep_pos;
+    assert(top != nullptr);
+
+    sep_pos = -1;
+    brace_num = 0;
+    for(i = r_border - 1; i >= l_border; i--) {
+        if(lex_arr->lexems[i].kind == BRACE) {
+            if(lex_arr->lexems[i].lex.b == RBRAC) {
+                brace_num++;
+            }
+            else {
+                brace_num--;
+            }
+        }
+
+        if(brace_num < 0) {
+            return 0;
+        }
+        if(brace_num == 0) {
+            if((lex_arr->lexems[i].kind == OP) && ((lex_arr->lexems[i].lex.op == MUL) || (lex_arr->lexems[i].lex.op == DIV))) {
+                sep_pos = i;
+                break;
+            }
+        }
+    }
+    if(sep_pos == -1) {
+        return build_term(top, l_border, r_border, lex_arr);
+    }
+
+    if((sep_pos == l_border) || (sep_pos == r_border - 1)) {
+        return 0;
+    }
+    else {
+        top->data = lex_arr->lexems[sep_pos];
+        make_tree_vert(top);
+        if(build_mult(top->left, l_border, sep_pos, lex_arr) == 0) {
+            return 0;
+        }
+        if(build_term(top->right, sep_pos + 1, r_border, lex_arr) == 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int build_term(struct syn_tree* top, int l_border, int r_border, struct lex_array_t* lex_arr) {
+    int i, brace_num;
+    assert(top != nullptr);
+
+    if(l_border + 1 == r_border) { //учет одиночных чисел
+        if(lex_arr->lexems[l_border].kind == NUM) {
+            top->data = lex_arr->lexems[l_border];
+            return 1;
+        }
+        else {
+            return 0;
+        }
+    }
+
+    if((lex_arr->lexems[l_border].kind == BRACE) && (lex_arr->lexems[l_border].lex.b == LBRAC) &&
+    (lex_arr->lexems[r_border - 1].kind == BRACE) && (lex_arr->lexems[r_border - 1].lex.b == RBRAC)) { //снятие скобок со всего выражения
+        brace_num = 0;
+        for(i = l_border; i < r_border - 1; i++) { //проверка соответсвия выражению (expr)
+            if(lex_arr->lexems[i].kind == BRACE) {
+                if(lex_arr->lexems[i].lex.b == LBRAC) {
+                    brace_num++;
+                }
+                else {
+                    brace_num--;
+                }
+            }
+            if(brace_num <= 0) {
+                return 0;
+            }
+        }
+        if(brace_num != 1) {
+            return 0;
+        }
+
+        return build_expr(top, l_border + 1, r_border - 1, lex_arr);
+    }
+    return 0;
+}
+
+void make_tree_vert(struct syn_tree* top) {
+    assert(top != nullptr);
+    assert(top->left == nullptr);
+    assert(top->right == nullptr);
+    top->left = (struct syn_tree*) calloc(1, sizeof(struct syn_tree));
+    top->left->left = nullptr;
+    top->left->right = nullptr;
     top->right = (struct syn_tree*) calloc(1, sizeof(struct syn_tree));
     top->right->left = nullptr;
     top->right->right = nullptr;
 }
 
-void make_tree_vert_left(struct syn_tree* top) {
-    top->left = (struct syn_tree*) calloc(1, sizeof(struct syn_tree));
-    top->left->left = nullptr;
-    top->left->right = nullptr;
-}
-
-//Эта функция рекурсивно строит синтаксическое дерево
-//Проход по массиву лексем идет в обратном порядке
-int build_v(struct lex_array_t* lex_arr, int lex_arr_pos, struct syn_tree* top) {
-    static int work_mode = 0;
-    //Функция работает в 2 режимах:
-    //work_mode = 0 - полное построение вершины дерева
-    //work_mode = 1 - достраивание вершины с учетом наличия правого потомка
-    struct syn_tree t_buff;
-    //Для хранения копии вершины
-    assert(lex_arr != nullptr);
-    assert(top != nullptr);
-    if(lex_arr_pos < 0) {
-        return lex_arr_pos;
-    }
-
-    if(work_mode == 0) { //построение правого потомка (число или рекурсивный спуск в него)
-        if(lex_arr->lexems[lex_arr_pos].kind == NUM) {
-            make_tree_vert_right(top);
-            top->right->data = lex_arr->lexems[lex_arr_pos];
-            lex_arr_pos--;
-        }
-        else if ((lex_arr->lexems[lex_arr_pos].kind == BRACE) || (lex_arr->lexems[lex_arr_pos].lex.b == RBRAC)) {
-            make_tree_vert_right(top);
-            lex_arr_pos--;
-            lex_arr_pos = build_v(lex_arr, lex_arr_pos, top->right);
-        }
-        else { //синтаксическая ошибка
-            return -2;
-        }
-
-        if(lex_arr_pos < 0) {
-            return lex_arr_pos;
-        }
-    }
-
-    work_mode = 0;
-
-    if(lex_arr->lexems[lex_arr_pos].kind == OP) { //Заполнение текущей вершины или подъем из нее.
-        top->data.kind = OP;
-        top->data.lex.op = lex_arr->lexems[lex_arr_pos].lex.op;
-        lex_arr_pos--;
-    }
-    else if((lex_arr->lexems[lex_arr_pos].kind == BRACE) && (lex_arr->lexems[lex_arr_pos].lex.b == LBRAC)) {
-        return lex_arr_pos - 1;
-    }
-    else { //ошибка
-        return -2;
-    }
-
-    if(top->data.lex.op == SUB) {//дополнение выражений наподобие (-1) до (0 - 1).
-        if(lex_arr_pos < 0) {
-            make_tree_vert_left(top);
-            top->left->data.kind = NUM;
-            top->left->data.lex.num = 0;
-            return lex_arr_pos;
-        }
-        if ((lex_arr->lexems[lex_arr_pos].kind == BRACE) && (lex_arr->lexems[lex_arr_pos].lex.b == LBRAC)) {
-            make_tree_vert_left(top);
-            top->left->data.kind = NUM;
-            top->left->data.lex.num = 0;
-            return lex_arr_pos - 1;
-        }
-    }
-
-    if(lex_arr_pos < 0) {
-        return -2;
-    }
-
-    //Построение левого потомка (число или рекурсивный спуск в него).
-    if((lex_arr->lexems[lex_arr_pos].kind == BRACE) && (lex_arr->lexems[lex_arr_pos].lex.b == RBRAC)) {
-        make_tree_vert_left(top);
-        lex_arr_pos--;
-        lex_arr_pos = build_v(lex_arr, lex_arr_pos, top->left);
-    }
-    else if(lex_arr->lexems[lex_arr_pos].kind == NUM) {
-        make_tree_vert_left(top);
-        top->left->data = lex_arr->lexems[lex_arr_pos];
-        lex_arr_pos--;
-    }
-    else { //ошибка
-        return -2;
-    }
-
-    if(lex_arr_pos < 0) {
-        return lex_arr_pos;
-    }
-
-    //Далее идет подготовка дерева к добавлению следующей операции.
-    if((lex_arr->lexems[lex_arr_pos].kind == BRACE) && (lex_arr->lexems[lex_arr_pos].lex.b == LBRAC)) { //"(" - подъем из вершины
-        return lex_arr_pos - 1;
-    }
-    else {
-        work_mode = 1; //Следующий запуск функции - достраивание вершины
-        //В случае низкого приоритета операции текущей вершины:
-        //Левый потомок перевешивается на своего правого потомка
-        //Далее левый потомок будет достраиваться
-        if((top->data.lex.op == ADD) || (top->data.lex.op == SUB)) {
-            t_buff = *(top->left);
-            make_tree_vert_left(top->left);
-            make_tree_vert_right(top->left);
-            *(top->left->right) = t_buff;
-            lex_arr_pos = build_v(lex_arr, lex_arr_pos, top->left);
-        }
-        //В случае высокого приоритета текущей операции:
-        //Текущая вершина перевешивается на своего правого потомка
-        //Далее достраивается текущая вершина
-        else {
-            t_buff = *(top->right);
-            make_tree_vert_left(top->right);
-            make_tree_vert_right(top->right);
-            *(top->right->right) = t_buff;
-            top->right->data = top->data;
-            top->right->left = top->left;
-            top->left = nullptr;
-            lex_arr_pos = build_v(lex_arr, lex_arr_pos, top);
-        }
-    }
-    return lex_arr_pos;
-}
 
 void destroy_tree(struct syn_tree* top) {
     assert(top != nullptr);
@@ -223,10 +222,6 @@ int calculate_tree(struct syn_tree* top) {
         if(top->data.lex.op == DIV) {
             return l_num / r_num;
         }
-    }
-
-    if(top->right != nullptr) {
-        return calculate_tree(top->right);
     }
 
     assert(top->data.kind == NUM);

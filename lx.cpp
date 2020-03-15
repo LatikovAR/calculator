@@ -12,9 +12,9 @@ struct lex_array_t lex_string(const char *str) {
     j = 0;
     isprev_number = 0;
     while(str[i] != '\0') {
-        if(larr.capacity == j) {
+        if(larr.capacity <= j + 1) {
             larr.capacity *= 2;
-            lex_copy = (struct lexem_t*) realloc(larr.lexems, (size_t) larr.capacity);
+            lex_copy = (struct lexem_t*) realloc(larr.lexems, (unsigned long long) larr.capacity * sizeof (struct lexem_t));
             assert(lex_copy != nullptr);
             larr.lexems = lex_copy;
         }
@@ -79,6 +79,10 @@ struct lex_array_t lex_string(const char *str) {
         j++;
     }
     larr.size = j;
+    lex_copy = (struct lexem_t*) realloc(larr.lexems, (size_t) larr.size * sizeof (struct lexem_t));
+    assert(lex_copy != nullptr);
+    larr.lexems = lex_copy;
+    larr.capacity = larr.size;
     return larr;
 }
 
