@@ -33,7 +33,7 @@ struct lexem_t {
 // capacity: number of additions before realloc
 struct lex_array_t {
   struct lexem_t *lexems;
-  int size, capacity;
+  int size, capacity, parsed_pos;
 };
 
 // initial capacity
