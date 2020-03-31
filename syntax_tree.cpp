@@ -1,25 +1,30 @@
 #include "syntax_tree.h"
 
-struct syn_tree* build_expr(struct lex_array_t* lex_arr);
-struct syn_tree* build_mult(struct lex_array_t* lex_arr);
-struct syn_tree* build_term(struct lex_array_t* lex_arr);
-int check_brace(struct lex_array_t* lex_arr);
+static struct syn_tree* build_expr(struct lex_array_t* lex_arr);
+static struct syn_tree* build_mult(struct lex_array_t* lex_arr);
+static struct syn_tree* build_term(struct lex_array_t* lex_arr);
+static int check_brace(struct lex_array_t* lex_arr);
+static bool isopadd_t(struct lex_array_t* lex_arr);
+static bool isopmul_t(struct lex_array_t* lex_arr);
+static bool isrbrac(struct lex_array_t* lex_arr);
+static bool islbrac(struct lex_array_t* lex_arr);
 
 struct syn_tree* make_syn_tree(struct lex_array_t* lex_arr) {
-    struct syn_tree* s_tree;
+    struct syn_tree* s_tree = nullptr;
     assert(lex_arr != nullptr);
-
-    if(check_brace(lex_arr) == 0) {
-        return nullptr;
-    }
 
     lex_arr->parsed_pos = lex_arr->size - 1;
     s_tree = build_expr(lex_arr); //error - nullptr
 
+    if(lex_arr->parsed_pos >= 0) {
+        destroy_tree(s_tree);
+        return nullptr;
+    }
+
     return s_tree;
 }
 
-struct syn_tree* build_expr(struct lex_array_t* lex_arr) {
+static struct syn_tree* build_expr(struct lex_array_t* lex_arr) {
     struct syn_tree* top = nullptr;
     struct syn_tree* lhs = nullptr;
     struct syn_tree* rhs = nullptr;
@@ -37,23 +42,20 @@ struct syn_tree* build_expr(struct lex_array_t* lex_arr) {
         return rhs;
     }
 
-    if((lex_arr->lexems[lex_arr->parsed_pos].kind == OP) &&
-      ((lex_arr->lexems[lex_arr->parsed_pos].lex.op == ADD) ||
-      (lex_arr->lexems[lex_arr->parsed_pos].lex.op == SUB))) {
+    if(isopadd_t(lex_arr)) {
         top = (struct syn_tree*) calloc(1, sizeof (struct syn_tree));
+        assert(top != nullptr);
         top->data = lex_arr->lexems[lex_arr->parsed_pos];
         lex_arr->parsed_pos--;
         if((lex_arr->lexems[lex_arr->parsed_pos + 1].lex.op == SUB) &&
-           ((lex_arr->parsed_pos == -1) ||
-           ((lex_arr->lexems[lex_arr->parsed_pos].kind == BRACE) &&
-           (lex_arr->lexems[lex_arr->parsed_pos].lex.b == LBRAC)))){ // in case (-EXPR)
+           ((lex_arr->parsed_pos == -1) || (islbrac(lex_arr)))){ // in case (-EXPR)
             top->left = (struct syn_tree*) calloc(1, sizeof (struct syn_tree));
+            assert(top->left != nullptr);
             top->left->left = nullptr;
             top->left->right = nullptr;
             top->left->data.kind = NUM;
             top->left->data.lex.num = 0;
             top->right = rhs;
-            lex_arr->parsed_pos--;
             return top;
         }
         lhs = build_expr(lex_arr);
@@ -67,9 +69,7 @@ struct syn_tree* build_expr(struct lex_array_t* lex_arr) {
         return top;
     }
 
-    if((lex_arr->lexems[lex_arr->parsed_pos].kind == BRACE) &&
-      (lex_arr->lexems[lex_arr->parsed_pos].lex.b == LBRAC)) {
-        lex_arr->parsed_pos--;
+    if(islbrac(lex_arr)) {
         return rhs;
     }
 
@@ -77,7 +77,7 @@ struct syn_tree* build_expr(struct lex_array_t* lex_arr) {
     return nullptr;
 }
 
-struct syn_tree* build_mult(struct lex_array_t* lex_arr) {
+static struct syn_tree* build_mult(struct lex_array_t* lex_arr) {
     struct syn_tree* top = nullptr;
     struct syn_tree* lhs = nullptr;
     struct syn_tree* rhs = nullptr;
@@ -96,9 +96,9 @@ struct syn_tree* build_mult(struct lex_array_t* lex_arr) {
     }
 
     if(lex_arr->lexems[lex_arr->parsed_pos].kind == OP) {
-        if((lex_arr->lexems[lex_arr->parsed_pos].lex.op == MUL) ||
-          (lex_arr->lexems[lex_arr->parsed_pos].lex.op == DIV)) {
+        if(isopmul_t(lex_arr)) {
             top = (struct syn_tree*) calloc(1, sizeof (struct syn_tree));
+            assert(top != nullptr);
             top->data = lex_arr->lexems[lex_arr->parsed_pos];
             lex_arr->parsed_pos--;
             lhs = build_mult(lex_arr);
@@ -116,8 +116,7 @@ struct syn_tree* build_mult(struct lex_array_t* lex_arr) {
         }
     }
 
-    if((lex_arr->lexems[lex_arr->parsed_pos].kind == BRACE) &&
-      (lex_arr->lexems[lex_arr->parsed_pos].lex.b == LBRAC)) {
+    if(islbrac(lex_arr)) {
         return rhs;
     }
 
@@ -125,11 +124,12 @@ struct syn_tree* build_mult(struct lex_array_t* lex_arr) {
     return nullptr;
 }
 
-struct syn_tree* build_term(struct lex_array_t* lex_arr) {
+static struct syn_tree* build_term(struct lex_array_t* lex_arr) {
     struct syn_tree* top = nullptr;
 
     if(lex_arr->lexems[lex_arr->parsed_pos].kind == NUM) {
         top = (struct syn_tree*) calloc(1, sizeof(struct syn_tree));
+        assert(top != nullptr);
         top->data = lex_arr->lexems[lex_arr->parsed_pos];
         top->left = nullptr;
         top->right = nullptr;
@@ -137,24 +137,31 @@ struct syn_tree* build_term(struct lex_array_t* lex_arr) {
         return top;
     }
 
-    if((lex_arr->lexems[lex_arr->parsed_pos].kind == BRACE) &&
-       (lex_arr->lexems[lex_arr->parsed_pos].lex.b == RBRAC)) {
+    if(isrbrac(lex_arr)) {
         lex_arr->parsed_pos--;
-        return build_expr(lex_arr);
+        top = build_expr(lex_arr);
+        if((lex_arr->parsed_pos < 0) ||
+           (!islbrac(lex_arr))) {
+            destroy_tree(top);
+            return nullptr;
+        }
+        lex_arr->parsed_pos--;
+        return top;
     }
 
     return nullptr;
 }
 
 void destroy_tree(struct syn_tree* top) {
-    assert(top != nullptr);
-    if(top->left != nullptr) {
-        destroy_tree(top->left);
+    if(top != nullptr) {
+        if(top->left != nullptr) {
+            destroy_tree(top->left);
+        }
+        if(top->right != nullptr) {
+            destroy_tree(top->right);
+        }
+        free(top);
     }
-    if(top->right != nullptr) {
-        destroy_tree(top->right);
-    }
-    free(top);
 }
 
 int calculate_tree(struct syn_tree* top) {
@@ -177,7 +184,7 @@ int calculate_tree(struct syn_tree* top) {
         }
         if(top->data.lex.op == DIV) {
             if(r_num == 0) {
-                printf("MATH_ERROR\n");
+                assert(0 && "MATH_ERROR");
             }
             return l_num / r_num;
         }
@@ -187,13 +194,11 @@ int calculate_tree(struct syn_tree* top) {
     return top->data.lex.num;
 }
 
-int check_brace(struct lex_array_t* lex_arr) {
+static int check_brace(struct lex_array_t* lex_arr) {
     int i, cur_br_num;
     assert(lex_arr != nullptr);
 
     cur_br_num = 0;
-    //Число встретившихся "(" - ")", должно быть не меньше 0 всегда.
-    //В конце должно быть 0.
     for(i = 0; i < lex_arr->size; i++) {
         if(lex_arr->lexems[i].kind == BRACE) {
             if(lex_arr->lexems[i].lex.b == LBRAC) {
@@ -214,4 +219,26 @@ int check_brace(struct lex_array_t* lex_arr) {
         return 0;
     }
     return 1;
+}
+
+static bool isopadd_t(struct lex_array_t* lex_arr) {
+    return ((lex_arr->lexems[lex_arr->parsed_pos].kind == OP) &&
+            ((lex_arr->lexems[lex_arr->parsed_pos].lex.op == ADD) ||
+            (lex_arr->lexems[lex_arr->parsed_pos].lex.op == SUB))) ? true : false;
+}
+
+static bool isopmul_t(struct lex_array_t* lex_arr) {
+    return ((lex_arr->lexems[lex_arr->parsed_pos].kind == OP) &&
+            ((lex_arr->lexems[lex_arr->parsed_pos].lex.op == MUL) ||
+            (lex_arr->lexems[lex_arr->parsed_pos].lex.op == DIV))) ? true : false;
+}
+
+static bool isrbrac(struct lex_array_t* lex_arr) {
+    return ((lex_arr->lexems[lex_arr->parsed_pos].kind == BRACE) &&
+            (lex_arr->lexems[lex_arr->parsed_pos].lex.b == RBRAC)) ? true : false;
+}
+
+static bool islbrac(struct lex_array_t* lex_arr) {
+    return ((lex_arr->lexems[lex_arr->parsed_pos].kind == BRACE) &&
+            (lex_arr->lexems[lex_arr->parsed_pos].lex.b == LBRAC)) ? true : false;
 }
